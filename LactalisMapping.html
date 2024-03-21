@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parsou Mapping Tool</title>
+    <style>
+        #errorOutput {
+            white-space: pre;
+        }
+
+        th,
+        td {
+            white-space: nowrap;
+            max-width: 300px !important;
+            overflow-x: auto;
+        }
+    </style>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <!-- Bootstrap JS, Popper.js, and jQuery -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.9.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <!-- Include SheetJS (xlsx) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.2/xlsx.full.min.js"></script>
+
+</head>
+
+<body style="max-width: 100vw !important">
+    <div class="container" style="max-width: 100% !important">
+        <div class="row bg-dark text-light">
+            <div class="col-12 text-center">
+                <h1 class="h">Lactaclis to Minus 1 Import CSV Mapper</h1>
+            </div>
+        </div>
+        <!-- Your content and inputs go here -->
+        <div class="row mt-2">
+            <div class="col-4">
+                <div class="input-group mb-3">
+                    <div class="custom-file">
+                        <input class="custom-file-input" type="file" id="fileUpload" accept=".xlsx, .xls">
+                        <label class="custom-file-label" for="fileUpload">Choose file</label>
+                    </div>
+                </div>
+            </div>
+            <div class="col-3 offset-5 text-right">
+                <div class="btn-group">
+
+                    <button class="btn btn-primary" id="processButton">Process File
+
+                        <button class="btn btn-primary" id="saveCSVButton" disabled>Save CSV
+
+                </div>
+            </div>
+
+        </div>
+        <div class="row">
+            <div class="col-10 offset-1" id="errorOutput">
+            </div>
+        </div>
+
+
+        <div class="row mt-2 px-2">
+            <div class="col-12 border border-dark m-0 p-0" id="output" style="overflow: auto;">
+            </div>
+        </div>
+    </div>
+
+    
+
+
+
+    <!-- Parsou Mapping Script -->
+    <script src="Files/minus1Addresses.js"></script>
+    <script src="Files/leadDaysData.js"></script>
+    <script src="Files/lactalisAddresses.js"></script>
+    <script src="Files/publicHolidays.js"></script>
+
+    <script>
+
+
+
+
+
+
+
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var fileInput = document.getElementById('fileUpload');
+            var processButton = document.getElementById('processButton');
+
+            if (fileInput) {
+                fileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    parseExcelFile(file); // Function that handles the file parsing
+                });
+            } else {
+                console.error('fileUpload element not found');
+            }
+
+            if (processButton) {
+                processButton.addEventListener('click', () => {
+                    if (fileInput.files.length === 0) {
+                        alert('Please select a file to process.');
+                        return;
+                    }
+                    const file = fileInput.files[0];
+                    parseExcelFile(file); // Function that handles the file parsing
+                });
+            } else {
+                console.error('processButton element not found');
+            }
+        });
+
+        document.getElementById('saveCSVButton').addEventListener('click', () => {
+            let jsonData = JSON.parse(localStorage.getItem("csvDATA"));
+            downloadObjectAsCsv(jsonData, 'output');
+        });
+
+        // Function to read and parse the Excel file
+        async function parseExcelFile(file) {
+            const reader = new FileReader();
+            reader.onload = async function (e) {
+                const data = e.target.result;
+                const workbook = XLSX.read(data, {
+                    type: 'binary'
+                });
+
+                // Assuming the data is in the first sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert the worksheet to JSON starting from row 9
+                let jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 0, raw: false, defval: '', blankrows: false, dateNF: 'dd/mm/yyyy', column_parse: 'B-' });
+
+                jsonData = cleanData(jsonData);
+                let d = document.getElementById("output");
+
+
+                jsonData = processRawData(jsonData);
+
+                jsonData = await findMinus1Address(jsonData);
+                jsonData = await findMinus1DespatchAddress(jsonData);
+
+                d.innerHTML = "<pre>" + JSON.stringify(jsonData, null, 2) + "</pre>";
+
+                let groupedData = groupBookingsByMinus1Address(jsonData);
+
+
+                groupedData = processAndVerifyDates(groupedData);
+
+                d.innerHTML = "<pre>" + JSON.stringify(groupedData, null, 2) + "</pre>";
+
+                //return;
+
+
+                groupedData = createJsonFromData(groupedData);
+
+
+                d.innerHTML = "<pre>" + JSON.stringify(groupedData, null, 2) + "</pre>";
+
+
+                mapFieldsAndGenerateCSV(groupedData);
+
+
+
+                localStorage.setItem("csvDATA", JSON.stringify(groupedData));
+
+            };
+            reader.onerror = function (ex) {
+                console.log(ex);
+            };
+
+
+            reader.readAsBinaryString(file);
+        }
+        function processAndVerifyDates(data) {
+            for (let index = 0; index < data.length; index++) {
+                const element = data[index];
+
+                // Assuming verifyDates returns an object with properties DespatchDate and DeliveryDate
+                var newDates = verifyDates(element.bookings[0].DispatchDate, element.bookings[0].DeliveryDate, element.bookings[0].Minus1DespatchAddress.SubRoute, element.minus1Address.SubRoute);
+
+                // Format the dates as "dd.mm.yyyy"
+                const formattedDespatchDate = new Date(newDates.DespatchDate).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+                const formattedDeliveryDate = new Date(newDates.DeliveryDate).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+
+                // Update the DispatchDate and DeliveryDate properties of the original data with formatted dates
+                element.bookings[0].DispatchDate = formattedDespatchDate;
+                element.bookings[0].DeliveryDate = formattedDeliveryDate;
+            }
+
+            return data;
+        }
+
+
+
+        function removeItem(array, property, value) {
+            const index = array.findIndex(obj => obj[property] === value);
+            if (index !== -1) {
+                array.splice(index, 1);
+            }
+            return array;
+        }
+
+        // Function to map fields and generate CSV
+        async function mapFieldsAndGenerateCSV(data) {
+
+
+            // Initialize an array to hold your CSV rows
+            const csvRows = [];
+
+            const today = new Date();
+            const dd = String(today.getDate()).padStart(2, '0');
+            const mm = String(today.getMonth() + 1).padStart(2, '0'); // January is 0!
+            const yyyy = today.getFullYear();
+
+            const formattedDate = dd + '/' + mm + '/' + yyyy;
+            let okToExport = true;
+
+            let errors = [];
+
+            for (let i = 0; i < data.length; i++) {
+                const _row = data[i];
+                let row = _row;
+
+
+
+                let recAddress = "";
+                let recAddress1 = "";
+                let recAddress3 = "";
+                if (row.ReceiverName != "Not Found") {
+                    recAddress = row.ReceiverName;
+                    recAddress1 = row.ReceiverAddress1;
+                    recAddress3 = row.ReceiverAddress3;
+                } else {
+                    //okToExport = false;
+                    errors.push(row);
+                    continue;
+                }
+                let disAddress = "";
+                let disAddress1 = "";
+                let disAddress3 = "";
+                if (row.SenderName != "Not Found") {
+                    disAddress = row.SenderName;
+                    disAddress1 = row.SenderAddress1;
+                    disAddress3 = row.SenderAddress3;
+                } else {
+                    okToExport = false;
+                    errors.push(row);
+                    continue;
+                }
+
+                let recReference = row.ReceiverReference;
+                recReference = recReference.replaceAll("\n", "-").replaceAll("\r", "-").replaceAll("\r\n", "-");
+                if (recReference.replaceAll("/", "") == "" || recReference.replaceAll("/", "") == null) {
+                    recReference = "";
+                };
+
+
+
+                const csvRow = {
+                    BookingDate: "",
+                    StatusCode: 'E',
+                    // ... map other fields ...
+                    LocationCode: 'DAN',
+                    CustomerCode: 'PARSOU',
+                    SenderName: disAddress,
+                    SenderAddress1: disAddress1,
+                    SenderAddress2: "",
+                    SenderAddress3: disAddress3,
+                    SenderState: "",
+                    SenderPostCode: "",
+                    SenderSubRouteCode: "",
+                    ReceiverName: recAddress,
+                    ReceiverAddress1: recAddress1,
+                    ReceiverAddress2: "",
+                    ReceiverAddress3: recAddress3,
+                    ReceiverState: row.State,
+                    ReceiverPostcode: "",
+                    ReceiverSubRouteCode: "",
+                    DespatchDate: parseDate(row.DespatchDate),
+                    DeliveryDate: parseDate(row.DeliveryDate),
+                    Instructions: "",
+                    JobNo: "",
+                    RouteCode: "",
+                    RouteLane: "",
+                    ConsignmentNo: row.ConsignmentNo,
+                    OrderNo: row.OrderNo,
+                    SenderReference: "",
+                    ReceiverReference: recReference,
+                    ServiceCode: row.ServiceCode,
+                    PickupStartTime: "",
+                    PickupEndTime: "",
+                    DeliveryStartTime: "",
+                    DeliveryEndTime: "",
+                    BookingType: row.BookingType,
+                    BookingScreen: "",
+                    FuelLevyCode: "",
+                    LineType: "Product",
+                    ProductCode: "CH",
+                    ChargeTypeCode: "",
+                    Description: "",
+                    Description2: "",
+                    TaxCode: "S1",
+                    UnitCode1: row.UnitCode1,
+                    Quantity1: row.Quantity1,
+                    UnitCode2: row.UnitCode2,
+                    Quantity2: row.Quantity2,
+                    UnitCode3: row.UnitCode3,
+                    Quantity3: row.Quantity3,
+                    ChargeQuantity: "",
+                    ChargeUnitCode: "",
+                    ChargeUnitCode: "",
+                    ReferenceNo: "",
+                    DetailNotes: "",
+                    DangerousCode: "CH",
+                    Cubic: "",
+                    CubicItems: "",
+                    CubicLength: "",
+                    CubicWidth: "",
+                    CubicHeight: "",
+                    RateTypeCode: "CUST",
+                    MovementCode1: "",
+                    MakeCode1: "",
+                    PalletType1: "",
+                    SendingAccount1: "",
+                    ReceivingAccount1: "",
+                    PalletCount1: "",
+                    MovementCode2: "",
+                    MakeCode2: "",
+                    PalletType2: "",
+                    SendingAccount2: "",
+                    ReceivingAccount2: "",
+                    PalletCount2: "",
+                    MovementCode3: "",
+                    MakeCode3: "",
+                    PalletType3: "",
+                    SendingAccount3: "",
+                    ReceivingAccount3: "",
+                    PalletCount3: "",
+                    MovementCode4: "",
+                    MakeCode4: "",
+                    PalletType4: "",
+                    SendingAccount4: "",
+                    ReceivingAccount4: "",
+                    PalletCount4: "",
+                    MovementCode5: "",
+                    MakeCode5: "",
+                    PalletType5: "",
+                    SendingAccount5: "",
+                    ReceivingAccount5: "",
+                    PalletCount5: "",
+                    FindSender: "Yes",
+                    FindReceiver: "Yes",
+                    FindRate: "Yes",
+                    FindSenderSubRoute: "Yes",
+                    FindReceiverSubRoute: "Yes",
+                    CreateRouteCode: "Yes",
+                    CreateLeg: "Yes",
+                    VersionNo: 5,
+                    EOL: "EOL",
+
+                };
+
+                // Add the CSV row to the array
+                csvRows.push(csvRow);
+            };
+
+
+            var outputHTML = document.getElementById("output");
+            //outputHTML.innerHTML = JSON.stringify(csvRows, null, 2);
+            //outputHTML.innerHTML = syntaxHighlight(csvRows);
+
+            displayTable(csvRows);
+
+            //localStorage.setItem('csvString', csvString);
+            localStorage.setItem('jsonData', csvRows);
+
+            let saveCSVButton = document.getElementById("saveCSVButton");
+            saveCSVButton.removeAttribute("disabled");
+            if (!okToExport) {
+                saveCSVButton.setAttribute("disabled", true);
+            };
+
+            if (errors.length > 0) {
+                var errorOutput = document.getElementById("errorOutput");
+                let errorResult = "<b>The orders for the following could not be processed:</b><hr>";
+
+                for (let i = 0; i < errors.length; i++) {
+                    var e = errors[i];
+                    errorResult += "<i>Shipment:</i> " + e.OrderNo.replaceAll("/", "\t<br>-").replaceAll(" ", "<br><i>Deliveries:</i><br>-") + "</br>";
+
+
+                };
+
+                errorResult += "<hr><b>These will need to be entered Manually</b>";
+                errorOutput.classList.add("border");
+                errorOutput.classList.add("border-danger");
+                errorOutput.classList.add("border-5");
+
+                errorOutput.innerHTML = errorResult;
+            };
+
+
+        }
+
+
+        function createJsonFromData(data) {
+            const today = new Date().toISOString().split('T')[0]; // Get current date in YYYY-MM-DD format
+
+            data.sort((a, b) => {
+                const deliveryNumberA = parseInt(a.bookings[0].ShipmentNumber);
+                const deliveryNumberB = parseInt(b.bookings[0].ShipmentNumber);
+
+                if (deliveryNumberA < deliveryNumberB) {
+                    return -1;
+                }
+                if (deliveryNumberA > deliveryNumberB) {
+                    return 1;
+                }
+                return 0;
+            });
+
+            var ConNoteCounter = 0;
+            var LastShipmentNo = null;
+            var conNoteNo = "";
+
+            let outputJson = data.map((item, index) => {
+                let deliveryNumbers = item.bookings.map(booking => booking.DeliveryNumber).join(" / ");
+                let purchaseOrderNumbers = item.bookings.map(booking => booking.PurchaseOrderNumber).join(" / ");
+                purchaseOrderNumbers = purchaseOrderNumbers.replaceAll("\n", "").replaceAll("\r", "").replaceAll("\r\n", "");
+                let totalPallets = item.bookings.reduce((sum, booking) => sum + Number(booking.Pallets), 0);
+                let totalSpaces = item.bookings.reduce((sum, booking) => sum + Number(booking.Spaces), 0);
+                let totalGrossWeight = item.bookings.reduce((sum, booking) => sum + Number(booking.GrossWeight), 0);
+                let receiverReference = "";
+                if (`${purchaseOrderNumbers}` != "") {
+                    receiverReference = `${purchaseOrderNumbers}`;
+                    if (receiverReference.replaceAll("/", "").replaceAll(" ", "") == "") {
+                        receiverReference = "";
+                    };
+                };
+
+                var shipment = item.bookings[0].ShipmentNumber;
+                if (shipment == LastShipmentNo) {
+                    ConNoteCount++;
+                    LastShipmentNo = LastShipmentNo;
+                } else {
+                    ConNoteCount = 1;
+                    LastShipmentNo = shipment;
+                };
+                conNoteNo = ConNoteCount > 1 ? shipment + "_" + ConNoteCount : shipment;
+
+                if (conNoteNo == "100255926_7") {
+                    let waithere = true;
+                }
+
+                return {
+                    BookingDate: "",
+                    StatusCode: "E",
+                    LocationCode: "DAN",
+                    CustomerCode: "PARSOU",
+                    SenderName: item.bookings[0].Minus1DespatchAddress.Name,
+                    SenderAddress1: item.bookings[0].Minus1DespatchAddress.Address1,
+                    SenderAddress2: "",
+                    SenderAddress3: item.bookings[0].Minus1DespatchAddress.Address3,
+                    SenderState: "",
+                    SenderPostCode: "",
+                    SenderSubRouteCode: "",
+                    ReceiverName: item.minus1Address.Name,
+                    ReceiverAddress1: item.minus1Address.Address1,
+                    ReceiverAddress2: "",
+                    ReceiverAddress3: item.minus1Address.Address3,
+                    ReceiverState: "",
+                    ReceiverPostcode: "",
+                    ReceiverSubRouteCode: "",
+                    DespatchDate: parseDate(item.bookings[0].DispatchDate),
+                    DeliveryDate: parseDate(item.bookings[0].DeliveryDate),
+                    Instructions: "",
+                    JobNo: "",
+                    RouteCode: "",
+                    RouteLane: "",
+                    ConsignmentNo: conNoteNo,
+                    //ConsignmentNo:  `${item.bookings[0].ShipmentNumber}_${index + 1}`,
+                    OrderNo: `${deliveryNumbers}`,
+                    SenderReference: "",
+                    ReceiverReference: receiverReference,
+                    ServiceCode: "GEN",
+                    PickupStartTime: "",
+                    PickupEndTime: "",
+                    DeliveryStartTime: "",
+                    DeliveryEndTime: "",
+                    BookingType: "",
+                    BookingScreen: "",
+                    FuelLevyCode: "",
+                    LineType: "Product",
+                    ProductCode: "CH",
+                    ChargeTypeCode: "",
+                    Description: "",
+                    Description2: "",
+                    TaxCode: "S1",
+                    UnitCode1: "PL",
+                    Quantity1: totalPallets,
+                    UnitCode2: "SP",
+                    Quantity2: totalSpaces,
+                    UnitCode3: "KG",
+                    Quantity3: totalGrossWeight,
+                    ChargeQuantity: "",
+                    ChargeUnitCode: "",
+                    ChargeUnitCode: "",
+                    ReferenceNo: "",
+                    DetailNotes: "",
+                    DangerousCode: "CH",
+                    Cubic: "",
+                    CubicItems: "",
+                    CubicLength: "",
+                    CubicWidth: "",
+                    CubicHeight: "",
+                    RateTypeCode: "CUST",
+                    MovementCode1: "",
+                    MakeCode1: "",
+                    PalletType1: "",
+                    SendingAccount1: "",
+                    ReceivingAccount1: "",
+                    PalletCount1: "",
+                    MovementCode2: "",
+                    MakeCode2: "",
+                    PalletType2: "",
+                    SendingAccount2: "",
+                    ReceivingAccount2: "",
+                    PalletCount2: "",
+                    MovementCode3: "",
+                    MakeCode3: "",
+                    PalletType3: "",
+                    SendingAccount3: "",
+                    ReceivingAccount3: "",
+                    PalletCount3: "",
+                    MovementCode4: "",
+                    MakeCode4: "",
+                    PalletType4: "",
+                    SendingAccount4: "",
+                    ReceivingAccount4: "",
+                    PalletCount4: "",
+                    MovementCode5: "",
+                    MakeCode5: "",
+                    PalletType5: "",
+                    SendingAccount5: "",
+                    ReceivingAccount5: "",
+                    PalletCount5: "",
+                    FindSender: "Yes",
+                    FindReceiver: "Yes",
+                    FindRate: "Yes",
+                    FindSenderSubRoute: "Yes",
+                    FindReceiverSubRoute: "Yes",
+                    CreateRouteCode: "Yes",
+                    CreateLeg: "Yes",
+                    VersionNo: 5,
+                    EOL: "EOL"
+                };
+            });
+            return outputJson;
+        }
+
+
+        function cleanData(csvData) {
+            // Copy the CSV data to avoid modifying the original
+            const cleanedData = [...csvData];
+
+            // Filter out rows with 'Total' in the Shipment Number Column (2)
+            const filteredData = cleanedData.filter(row => !row[1].includes('Total'));
+
+            return filteredData;
+        }
+
+        function processRawData(data) {
+            var processed = [];
+
+            let lastShipmentNo;
+            let lastDeliveryTime;
+            let lastState;
+
+            // Start iterating from the second row (index 1)
+            for (let i = 1; i < data.length; i++) {
+                const row = data[i];
+                let shipmentNo = row[4];
+
+                if (shipmentNo == "" || shipmentNo == null) {
+                    shipmentNo = lastShipmentNo;
+                } else {
+                    lastShipmentNo = shipmentNo;
+                }
+
+                let collectionTime = row[3];
+                if (collectionTime == "" || collectionTime == null) {
+                    collectionTime = lastDeliveryTime;
+                } else {
+                    lastDeliveryTime = collectionTime;
+                }
+
+                let state = row[9];
+                if (state == "" || state == null) {
+                    state = lastState;
+                } else {
+                    lastState = state;
+                }
+
+                let deliveryNumber = row[5];
+                let customerName = row[7];
+                let suburb = row[8];
+                let deliveryDate = row[10];
+                let purchaseOrderNumber = row[12];
+                let pallets = row[16];
+                let spaces = row[17];
+                let grossWeight = row[18];
+                let siteKey = parseInt(row[6]);
+                let dispatchPoint = row[0];
+                let dispatchDate = row[2];
+
+                processed.push({
+                    ShipmentNumber: shipmentNo,
+                    CollectionTime: collectionTime,
+                    State: state,
+                    DeliveryNumber: deliveryNumber,
+                    CustomerName: customerName,
+                    Suburb: suburb,
+                    DeliveryDate: deliveryDate,
+                    PurchaseOrderNumber: purchaseOrderNumber,
+                    Pallets: pallets,
+                    Spaces: spaces,
+                    GrossWeight: grossWeight,
+                    DispatchPoint: dispatchPoint,
+                    DispatchDate: dispatchDate,
+                    LocationID: siteKey
+                });
+            }
+
+            return processed;
+        }
+
+
+        function displayTable(jsonArray) {
+            const columnsToHide = ["BookingDate", "PickupStartTime",
+                "PickupEndTime",
+                "DeliveryStartTime",
+                "DeliveryEndTime",
+                "BookingType",
+                "BookingScreen",
+                "FuelLevyCode",
+                "StatusCode",
+                "SenderAddress2",
+                "SenderState",
+                "LocationCode",
+                "SenderPostCode",
+                "CustomerCode",
+                "SenderSubRouteCode",
+                "ReceiverAddress2",
+                "ReceiverState",
+                "ReceiverPostcode",
+                "ReceiverSubRouteCode",
+                "JobNo",
+                "RouteCode",
+                "RouteLane",
+                "SenderReference",
+                "ServiceCode",
+                "ChargeTypeCode",
+                "Description",
+                "Description2",
+                "TaxCode",
+                "ChargeQuantity",
+                "ChargeUnitCode",
+                "ReferenceNo",
+                "DetailNotes",
+                "Cubic",
+                "CubicItems",
+                "CubicLength",
+                "CubicWidth",
+                "CubicHeight",
+                "RateTypeCode",
+                "MovementCode1",
+                "MakeCode1",
+                "PalletType1",
+                "SendingAccount1",
+                "ReceivingAccount1",
+                "PalletCount1",
+                "MovementCode2",
+                "MakeCode2",
+                "PalletType2",
+                "SendingAccount2",
+                "ReceivingAccount2",
+                "PalletCount2",
+                "MovementCode3",
+                "MakeCode3",
+                "PalletType3",
+                "SendingAccount3",
+                "ReceivingAccount3",
+                "PalletCount3",
+                "MovementCode4",
+                "MakeCode4",
+                "PalletType4",
+                "SendingAccount4",
+                "ReceivingAccount4",
+                "PalletCount4",
+                "MovementCode5",
+                "MakeCode5",
+                "PalletType5",
+                "SendingAccount5",
+                "ReceivingAccount5",
+                "PalletCount5",
+                "FindSender",
+                "FindReceiver",
+                "FindRate",
+                "FindSenderSubRoute",
+                "FindReceiverSubRoute",
+                "CreateRouteCode",
+                "CreateLeg",
+                "VersionNo",
+                "EOL",
+                "LineType",
+                "DangerousCode",
+                "Instructions"
+            ];
+
+            // Create an HTML table element
+            const table = document.createElement('table');
+            table.classList.add('table', 'table-striped');
+
+            // Create table header row
+            const headerRow = document.createElement('tr');
+
+            // Iterate over the keys of the first object to create table headers
+            Object.keys(jsonArray[0]).forEach(key => {
+                // Check if the column should be hidden
+                if (!columnsToHide.includes(key)) {
+                    var th = document.createElement('th');
+                    th.textContent = key;
+                    headerRow.appendChild(th);
+                };
+            });
+
+            // Add dark background to header row
+            headerRow.classList.add('bg-dark', 'text-light');
+
+            // Append the header row to the table
+            table.appendChild(headerRow);
+
+            // Iterate through each object in the JSON array to create table rows
+            jsonArray.forEach(obj => {
+                const tr = document.createElement('tr');
+
+                // Iterate over the values of each object to create table cells
+                Object.entries(obj).forEach(([key, value]) => {
+                    // Check if the column should be hidden
+                    if (!columnsToHide.includes(key)) {
+                        const td = document.createElement('td');
+                        td.textContent = value;
+                        tr.appendChild(td);
+                    }
+                });
+
+                // Append the row to the table
+                table.appendChild(tr);
+            });
+
+            // Clear existing content in outputHTML
+            const outputHTML = document.getElementById('output');
+            outputHTML.innerHTML = '';
+
+            // Append the table to the outputHTML element
+            outputHTML.appendChild(table);
+        }
+
+        function hideSelectedColumns(col) {
+            if (col == "SenderAddress2") {
+                return true
+            }
+            if (col == "SenderAddress2") {
+                return true
+            }
+
+            return false
+        }
+
+        // Function to convert an array of objects to a CSV string
+        function convertToCSV(objArray) {
+            const array = typeof objArray != 'object' ? JSON.parse(objArray) : objArray;
+            let csv = '';
+
+            // Create header row
+            const headers = Object.keys(array[0]);
+            csv += headers.join(',') + '\r\n';
+
+            // Create data rows
+            for (let i = 0; i < array.length; i++) {
+                let line = '';
+                for (let index in array[i]) {
+                    if (array[i]["ReceiverAddress1"] == "Not Found") {
+                        let wait = 0;
+                    };
+                    if (line != '') line += ',';
+                    line += array[i][index];
+                }
+                csv += line + '\r\n';
+            }
+            return csv;
+        };
+
+
+
+
+        async function findMinus1Address(data) {
+            // Read the address lists from the JSON files
+            const minusAddresses = m1Addresses;
+            const parsouAddresses = customerInternalAddresses;
+
+            let jsonData = [];
+
+            for (let index = 0; index < data.length; index++) {
+                const d = data[index];
+                const locationID = d.LocationID;
+                let parsouCustomer = d;
+
+                let newAddress = parsouAddresses.find(address => address.LocationID === locationID);
+
+                if (newAddress) {
+                    if (newAddress.Minus1_SiteKey) {
+                        // Find the Minus1 address using the Minus1_SiteKey from the parsouAddresses list
+                        const minus1Customer = minusAddresses.find(address => address["Site Key"] === newAddress.Minus1_SiteKey);
+                        if (minus1Customer) {
+                            const minus1SiteDetails = {
+                                SiteKey: minus1Customer["Site Key"],
+                                CustomerCode: "PARSOU",
+                                Name: minus1Customer["Name"],
+                                Active: minus1Customer["Active"],
+                                Address1: minus1Customer["Address 1"],
+                                Address3: minus1Customer["Address 3"],
+                                SubRoute: minus1Customer["Sub Route Code"]
+                            };
+
+                            // Add Minus1Address property to the parsouCustomer object
+                            parsouCustomer.Minus1Address = minus1SiteDetails;
+                        } else {
+                            // If Minus1 address is not found, add "Not Found" details
+                            parsouCustomer.Minus1Address = {
+                                SiteKey: "Not Found",
+                                CustomerCode: "Not Found",
+                                Name: "Not Found",
+                                Active: "Not Found",
+                                Address1: "Not Found",
+                                Address3: "Not Found",
+                                SubRoute: "",
+                            };
+                        }
+                    } else {
+                        // If Minus1_SiteKey is not found, add "Not Found" details
+                        parsouCustomer.Minus1Address = {
+                            SiteKey: "Not Found",
+                            CustomerCode: "Not Found",
+                            Name: "Not Found",
+                            Active: "Not Found",
+                            Address1: "Not Found",
+                            Address3: "Not Found",
+                            SubRoute: ""
+                        };
+                    }
+                } else {
+                    // If the location ID is not found in the parsouAddresses, add "Not Found" details
+                    parsouCustomer.Minus1Address = {
+                        SiteKey: "Not Found",
+                        CustomerCode: "Not Found",
+                        Name: "Not Found",
+                        Active: "Not Found",
+                        Address1: "Not Found",
+                        Address3: "Not Found",
+                        SubRoute: ""
+                    };
+                }
+
+                // Push the parsouCustomer object with Minus1 details into the jsonData array
+                jsonData.push(parsouCustomer);
+            }
+
+            return jsonData;
+        }
+
+
+
+        async function findMinus1DespatchAddress(data) {
+            // Read the address lists from the JSON files
+            const minusAddresses = m1Addresses;
+            const parsouAddresses = customerInternalAddresses;
+
+            let jsonData = [];
+
+            for (let index = 0; index < data.length; index++) {
+                const d = data[index];
+                const locationID = d.DispatchPoint;
+                let parsouCustomer = d;
+
+                let newAddress = parsouAddresses.find(address => address.PARSOU_LocationCode === locationID);
+
+                if (newAddress) {
+                    if (newAddress.Minus1_SiteKey) {
+                        // Find the Minus1 address using the Minus1_SiteKey from the parsouAddresses list
+                        const minus1Customer = minusAddresses.find(address => address["Site Key"] === newAddress.Minus1_SiteKey);
+                        if (minus1Customer) {
+                            const minus1SiteDetails = {
+                                SiteKey: minus1Customer["Site Key"],
+                                CustomerCode: "PARSOU",
+                                Name: minus1Customer["Name"],
+                                Active: minus1Customer["Active"],
+                                Address1: minus1Customer["Address 1"],
+                                Address3: minus1Customer["Address 3"],
+                                SubRoute: minus1Customer["Sub Route Code"]
+                            };
+
+                            // Add Minus1Address property to the parsouCustomer object
+                            parsouCustomer.Minus1DespatchAddress = minus1SiteDetails;
+                        } else {
+                            // If Minus1 address is not found, add "Not Found" details
+                            parsouCustomer.Minus1DespatchAddress = {
+                                SiteKey: "Not Found",
+                                CustomerCode: "Not Found",
+                                Name: "Not Found",
+                                Active: "Not Found",
+                                Address1: "Not Found",
+                                Address3: "Not Found",
+                                SubRoute: ""
+                            };
+                        }
+                    } else {
+                        // If Minus1_SiteKey is not found, add "Not Found" details
+                        parsouCustomer.Minus1DespatchAddress = {
+                            SiteKey: "Not Found",
+                            CustomerCode: "Not Found",
+                            Name: "Not Found",
+                            Active: "Not Found",
+                            Address1: "Not Found",
+                            Address3: "Not Found",
+                            SubRoute: ""
+                        };
+                    }
+                } else {
+                    // If the location ID is not found in the parsouAddresses, add "Not Found" details
+                    parsouCustomer.Minus1DespatchAddress = {
+                        SiteKey: "Not Found",
+                        CustomerCode: "Not Found",
+                        Name: "Not Found",
+                        Active: "Not Found",
+                        Address1: "Not Found",
+                        Address3: "Not Found",
+                        SubRoute: ""
+                    };
+                }
+
+                // Push the parsouCustomer object with Minus1 details into the jsonData array
+                jsonData.push(parsouCustomer);
+            }
+
+            return jsonData;
+        }
+
+
+
+
+
+
+
+        function parseDate(dateString) {
+            if (dateString.includes(".")) {
+                const [day, month, year] = dateString.split('.');
+                return [day, month, year].map(part => part.padStart(2, '0')).join('/');
+
+            } else if (dateString.includes("/")) {
+                const [day, month, year] = dateString.split('/');
+                return [day, month, year].map(part => part.padStart(2, '0')).join('/');
+
+            } else if (dateString.includes("-")) {
+                const parts = dateString.split('-');
+
+                // Check for either DD-MM-YYYY or YYYY-MM-DD
+                if (parts[0].length === 2) {
+                    // Assume DD-MM-YYYY format
+                    const [day, month, year] = parts;
+                    return [day, month, year].map(part => part.padStart(2, '0')).join('/');
+
+                } else if (parts[0].length === 4) {
+                    // Assume YYYY-MM-DD format
+                    const [year, month, day] = parts;
+                    return [day, month, year].map(part => part.padStart(2, '0')).join('/');
+
+                } else {
+                    // If the format doesn't match, you might want to throw an error 
+                    // or return a default value 
+                    return "";
+                }
+            } else {
+                // Handle cases where dateString doesn't contain ".", "/", or "-"
+                return "";
+            }
+        }
+
+
+        function groupBookingsByMinus1Address(data) {
+            const groupedBookings = {};
+
+            // Iterate over each delivery entry
+            for (const delivery of data) {
+                const minus1SiteKey = delivery.Minus1Address.SiteKey;
+
+                // If we haven't seen this Minus1Address before, create a new entry
+                if (!groupedBookings[minus1SiteKey]) {
+                    groupedBookings[minus1SiteKey] = {
+                        minus1Address: delivery.Minus1Address,
+                        bookings: []
+                    };
+                }
+
+                // Add the delivery booking to the corresponding Minus1Address group
+                groupedBookings[minus1SiteKey].bookings.push(delivery);
+            }
+
+
+            // Convert the groupedBookings object back into an array for convenience 
+            return Object.values(groupedBookings);
+        }
+
+
+
+
+        function downloadObjectAsCsv(exportObj, exportName) {
+            // Convert JSON to CSV
+            let filteredData = exportObj.filter(item => item.ReceiverName !== "Not Found");
+
+            const csvString = jsonToCSV(filteredData);
+
+            // Create a Blob with the CSV data
+            var dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvString);
+            var downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", exportName + ".csv");
+            document.body.appendChild(downloadAnchorNode); // Required for Firefox
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function jsonToCSV(objArray) {
+            const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
+            let csv = '';
+
+            // Get the headers
+            const headers = Object.keys(array[0]);
+            csv += headers.join(',') + '\r\n';
+
+            // Convert each object in the array to a CSV row
+            for (const row of array) {
+                let csvRow = [];
+                for (const key of headers) {
+                    let value = row[key] ? row[key].toString() : '';
+                    // Escape double-quotes and enclose in double-quotes
+                    // This allows for commas and newlines within fields
+                    value = value.replace(/"/g, '""');
+                    csvRow.push(`"${value}"`);
+                }
+                csv += csvRow.join(',') + '\r\n';
+            }
+
+            return csv;
+        }
+
+
+
+
+        const deliveryLocationToStateMap = {
+            MEL: 'VIC',
+            NSW: 'NSW',
+            SA: 'SA',
+            WA: 'WA',
+            QLD: 'QLD',
+            ACT: 'ACT',
+            TAS: 'TAS'
+        };
+
+        function parseTextDate(textDate) {
+            // Split the text date into day, month, and year components
+            const [day, month, year] = textDate.split('.');
+
+            // Create a new Date object using the components (months are zero-based in JavaScript)
+            const parsedDate = new Date(year, month - 1, day);
+
+            return parsedDate;
+        }
+
+        function verifyDates(despatchDate, deliveryDate, despatchLocation, deliveryLocation) {
+            despatchDate = parseTextDate(despatchDate);
+            deliveryDate = parseTextDate(deliveryDate);
+
+
+            //despatchDate = new Date(despatchDate);
+            //deliveryDate = new Date(deliveryDate);
+            var cutOffTime = new Date(2200, 12, 31, 14, 0, 0);
+
+            var nextDespatchDate = minDespatchDate(despatchDate, cutOffTime);
+            var nextDeliveryDate = calculateDeliveryDate(cutOffTime, nextDespatchDate, despatchLocation, deliveryLocation);
+
+            return { DespatchDate: nextDespatchDate, DeliveryDate: nextDeliveryDate };
+        }
+
+
+        function minDespatchDate(date, cutOffTime) {
+            var despatchDate = new Date(date);
+            var today = new Date();
+            var tomorrow = new Date();
+            tomorrow.setDate(despatchDate.getDate() + 1);
+
+            // Check if despatchDate is greater than tomorrow's date
+            if (despatchDate > tomorrow) {
+                return despatchDate;
+            }
+
+            if (despatchDate < tomorrow) {
+                despatchDate = tomorrow;
+            }
+            // Check if despatchDate is tomorrow
+            if (despatchDate.getDate() === tomorrow) {
+                // Check if the current time is after the cutOffTime
+                if (today.getHours() > cutOffTime.getHours() || (today.getHours() === cutOffTime.getHours() && today.getMinutes() > cutOffTime.getMinutes())) {
+                    // If true, return despatchDate + 1 day
+                    var nextDay = new Date(despatchDate);
+                    nextDay.setDate(despatchDate.getDate() + 1);
+                    return nextDay;
+                } else {
+                    return despatchDate;
+                }
+            }
+            // If despatchDate is not greater than tomorrow's date or tomorrow
+            else {
+                return despatchDate;
+            }
+        }
+
+
+
+        function calculateDeliveryDate(cutOffTime, inputDate, despatchLocation, deliveryLocation) {
+            var despatchDate = new Date(inputDate);
+            despatchLocation = despatchLocation.toUpperCase();
+            deliveryLocation = deliveryLocation.toUpperCase();
+
+            // Find the lead days for the specified route
+            var leadDays = leadDayData.routes.find(function (route) {
+                return route.RouteCode === despatchLocation + deliveryLocation;
+            });
+
+            // Extract required data from the lead days
+            var leavesOnNumber = leadDays ? leadDays["Leaves On Number"] : 0;
+            var days = leadDays ? leadDays.Days : 0;
+
+            // Calculate the estimated delivery date
+            var today = new Date();
+            var tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+
+            var isTomorrow = (despatchDate <= tomorrow) && (today.getHours() > cutOffTime.getHours());
+            var daysToAdd = days /* + (isTomorrow ? 1 : 0)*/;
+
+            var nextDespatchDate = findNextDayLeavingDate(despatchDate, leavesOnNumber);
+            var estimatedDeliveryDate = new Date(nextDespatchDate);
+            estimatedDeliveryDate.setDate(estimatedDeliveryDate.getDate() + daysToAdd);
+
+            var onforwardAdditionalDays = 0;
+            var onforwardAdditionalDaysMin = 0;
+
+            estimatedDeliveryDate.setDate(estimatedDeliveryDate.getDate() + onforwardAdditionalDays);
+            var estimatedDeliveryDateMin = new Date(estimatedDeliveryDate);
+
+            estimatedDeliveryDateMin.setDate(estimatedDeliveryDateMin.getDate() - onforwardAdditionalDaysMin);
+
+
+            var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+
+
+            return new Date(estimatedDeliveryDateMin);
+        };
+
+        function calculateOnforwardDays(startDate, min) {
+            const onforwardLocationSelect = document.getElementById('onforwardLocation').value;
+
+            if (onforwardLocationSelect !== "N/A") {
+                // Find the onforwarding data for the selected route code
+                const onforwardData = leadDayData.onForwarding.find(data => data.RouteCode === onforwardLocationSelect);
+
+                if (onforwardData) {
+                    const additionalDays = onforwardData.DaysMax;
+                    const additionalDaysMin = onforwardData.DaysMin;
+
+                    const nextDespatchDate = findNextDayLeavingDate(startDate, onforwardData.LeavesOnNumber);
+                    var result = nextDespatchDate.getDate() - startDate.getDate();
+                    result += additionalDays;
+                    var resultMin = result - additionalDaysMin;
+                    result = { Max: result, Min: resultMin };
+
+                    return result;
+                }
+            }
+
+            return { Max: 0, Min: 0 };
+        }
+
+        function findNextDayLeavingDate(date, leavesOn) {
+            date = new Date(date);
+            let nextDay = new Date(date); // Create a new date object to store the next day
+
+            // Convert leavesOn to an array if it's not already
+            if (!Array.isArray(leavesOn)) {
+                leavesOn = [leavesOn];
+            }
+
+            // If leavesOn includes Sunday (0), return the next day as is
+            if (leavesOn.includes(0)) {
+                return nextDay;
+            }
+
+            let currentIndex = 0;
+            while (currentIndex < 7) {
+                if (leavesOn.includes(nextDay.getDay())) {
+                    return nextDay; // Return the next leaving date
+                } else {
+                    nextDay.setDate(nextDay.getDate() + 1); // Increment the date by 1 day using setDate() method
+                    currentIndex++;
+                }
+            }
+        }
+
+        function findPublicHolidayByDateAndJurisdiction(date, jurisdiction) {
+            const formattedDate = date.replace(/-/g, ''); // Ensure date is in YYYYMMDD format
+            const holidays = publicHolidayList.records.filter(holiday =>
+                holiday[2] === formattedDate && holiday[6].toLowerCase() === jurisdiction.toLowerCase()
+            );
+
+            return holidays.length > 0 ? true : false;
+        }
+
+
+
+    </script>
+</body>
+
+</html>
