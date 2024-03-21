@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parsou Mapping Tool</title>
+    <title>Mapping Tool</title>
     <style>
         #errorOutput {
             white-space: pre;
@@ -68,18 +68,16 @@
         </div>
     </div>
 
-    
 
-
-
-    <!-- Parsou Mapping Script -->
     <script src="Files/minus1Addresses.js"></script>
     <script src="Files/leadDaysData.js"></script>
-    <script src="Files/lactalisAddresses.js"></script>
+    <script src="Files/clientAddresses.js"></script>
     <script src="Files/publicHolidays.js"></script>
 
     <script>
-
+        const reportOptions = {
+            CustomerCode: "PARSOU"
+        };
 
 
 
@@ -266,7 +264,7 @@
                     StatusCode: 'E',
                     // ... map other fields ...
                     LocationCode: 'DAN',
-                    CustomerCode: 'PARSOU',
+                    CustomerCode: reportOptions.CustomerCode,
                     SenderName: disAddress,
                     SenderAddress1: disAddress1,
                     SenderAddress2: "",
@@ -461,7 +459,7 @@
                     BookingDate: "",
                     StatusCode: "E",
                     LocationCode: "DAN",
-                    CustomerCode: "PARSOU",
+                    CustomerCode: reportOptions.CustomerCode,
                     SenderName: item.bookings[0].Minus1DespatchAddress.Name,
                     SenderAddress1: item.bookings[0].Minus1DespatchAddress.Address1,
                     SenderAddress2: "",
@@ -812,25 +810,25 @@
         async function findMinus1Address(data) {
             // Read the address lists from the JSON files
             const minusAddresses = m1Addresses;
-            const parsouAddresses = customerInternalAddresses;
+            const clientAddresses = customerInternalAddresses;
 
             let jsonData = [];
 
             for (let index = 0; index < data.length; index++) {
                 const d = data[index];
                 const locationID = d.LocationID;
-                let parsouCustomer = d;
+                let clientCustomer = d;
 
-                let newAddress = parsouAddresses.find(address => address.LocationID === locationID);
+                let newAddress = clientAddresses.find(address => address.LocationID === locationID);
 
                 if (newAddress) {
                     if (newAddress.Minus1_SiteKey) {
-                        // Find the Minus1 address using the Minus1_SiteKey from the parsouAddresses list
+                        // Find the Minus1 address using the Minus1_SiteKey from the clientAddresses list
                         const minus1Customer = minusAddresses.find(address => address["Site Key"] === newAddress.Minus1_SiteKey);
                         if (minus1Customer) {
                             const minus1SiteDetails = {
                                 SiteKey: minus1Customer["Site Key"],
-                                CustomerCode: "PARSOU",
+                                CustomerCode: reportOptions.CustomerCode,
                                 Name: minus1Customer["Name"],
                                 Active: minus1Customer["Active"],
                                 Address1: minus1Customer["Address 1"],
@@ -838,11 +836,11 @@
                                 SubRoute: minus1Customer["Sub Route Code"]
                             };
 
-                            // Add Minus1Address property to the parsouCustomer object
-                            parsouCustomer.Minus1Address = minus1SiteDetails;
+                            // Add Minus1Address property to the clientCustomer object
+                            clientCustomer.Minus1Address = minus1SiteDetails;
                         } else {
                             // If Minus1 address is not found, add "Not Found" details
-                            parsouCustomer.Minus1Address = {
+                            clientCustomer.Minus1Address = {
                                 SiteKey: "Not Found",
                                 CustomerCode: "Not Found",
                                 Name: "Not Found",
@@ -854,7 +852,7 @@
                         }
                     } else {
                         // If Minus1_SiteKey is not found, add "Not Found" details
-                        parsouCustomer.Minus1Address = {
+                        clientCustomer.Minus1Address = {
                             SiteKey: "Not Found",
                             CustomerCode: "Not Found",
                             Name: "Not Found",
@@ -865,8 +863,8 @@
                         };
                     }
                 } else {
-                    // If the location ID is not found in the parsouAddresses, add "Not Found" details
-                    parsouCustomer.Minus1Address = {
+                    // If the location ID is not found in the clientAddresses, add "Not Found" details
+                    clientCustomer.Minus1Address = {
                         SiteKey: "Not Found",
                         CustomerCode: "Not Found",
                         Name: "Not Found",
@@ -877,8 +875,8 @@
                     };
                 }
 
-                // Push the parsouCustomer object with Minus1 details into the jsonData array
-                jsonData.push(parsouCustomer);
+                // Push the clientCustomer object with Minus1 details into the jsonData array
+                jsonData.push(clientCustomer);
             }
 
             return jsonData;
@@ -889,25 +887,25 @@
         async function findMinus1DespatchAddress(data) {
             // Read the address lists from the JSON files
             const minusAddresses = m1Addresses;
-            const parsouAddresses = customerInternalAddresses;
+            const clientAddresses = customerInternalAddresses;
 
             let jsonData = [];
 
             for (let index = 0; index < data.length; index++) {
                 const d = data[index];
                 const locationID = d.DispatchPoint;
-                let parsouCustomer = d;
+                let clientCustomer = d;
 
-                let newAddress = parsouAddresses.find(address => address.PARSOU_LocationCode === locationID);
+                let newAddress = clientAddresses.find(address => address.CUSTOMER_LocationCode === locationID);
 
                 if (newAddress) {
                     if (newAddress.Minus1_SiteKey) {
-                        // Find the Minus1 address using the Minus1_SiteKey from the parsouAddresses list
+                        // Find the Minus1 address using the Minus1_SiteKey from the clientAddresses list
                         const minus1Customer = minusAddresses.find(address => address["Site Key"] === newAddress.Minus1_SiteKey);
                         if (minus1Customer) {
                             const minus1SiteDetails = {
                                 SiteKey: minus1Customer["Site Key"],
-                                CustomerCode: "PARSOU",
+                                CustomerCode: reportOptions.CustomerCode,
                                 Name: minus1Customer["Name"],
                                 Active: minus1Customer["Active"],
                                 Address1: minus1Customer["Address 1"],
@@ -915,11 +913,11 @@
                                 SubRoute: minus1Customer["Sub Route Code"]
                             };
 
-                            // Add Minus1Address property to the parsouCustomer object
-                            parsouCustomer.Minus1DespatchAddress = minus1SiteDetails;
+                            // Add Minus1Address property to the clientCustomer object
+                            clientCustomer.Minus1DespatchAddress = minus1SiteDetails;
                         } else {
                             // If Minus1 address is not found, add "Not Found" details
-                            parsouCustomer.Minus1DespatchAddress = {
+                            clientCustomer.Minus1DespatchAddress = {
                                 SiteKey: "Not Found",
                                 CustomerCode: "Not Found",
                                 Name: "Not Found",
@@ -931,7 +929,7 @@
                         }
                     } else {
                         // If Minus1_SiteKey is not found, add "Not Found" details
-                        parsouCustomer.Minus1DespatchAddress = {
+                        clientCustomer.Minus1DespatchAddress = {
                             SiteKey: "Not Found",
                             CustomerCode: "Not Found",
                             Name: "Not Found",
@@ -942,8 +940,8 @@
                         };
                     }
                 } else {
-                    // If the location ID is not found in the parsouAddresses, add "Not Found" details
-                    parsouCustomer.Minus1DespatchAddress = {
+                    // If the location ID is not found in the clientAddresses, add "Not Found" details
+                    clientCustomer.Minus1DespatchAddress = {
                         SiteKey: "Not Found",
                         CustomerCode: "Not Found",
                         Name: "Not Found",
@@ -954,8 +952,8 @@
                     };
                 }
 
-                // Push the parsouCustomer object with Minus1 details into the jsonData array
-                jsonData.push(parsouCustomer);
+                // Push the clientCustomer object with Minus1 details into the jsonData array
+                jsonData.push(clientCustomer);
             }
 
             return jsonData;
