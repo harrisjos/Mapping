@@ -1,4 +1,4 @@
-var customerInternalAddresses = [
+[
     {"LocationID":9015497,"Location Name":"# 443 MCDONALDS WEST TERRACE","CUSTOMER_LocationCode":"","Minus1_SiteKey":null},
     {"LocationID":7135332,"Location Name":"069448 - COLES QLD (BRAND)","CUSTOMER_LocationCode":"","Minus1_SiteKey":12432},
     {"LocationID":325044,"Location Name":"15TH & WALNUT CONVENIENCE SHOP (VIC)","CUSTOMER_LocationCode":"","Minus1_SiteKey":null},
@@ -1612,5 +1612,5 @@ var customerInternalAddresses = [
     {"LocationID":9001421,"Location Name":"YARRA VALLEY MILK UHT (VIC)","CUSTOMER_LocationCode":"","Minus1_SiteKey":null},
     {"LocationID":321586,"Location Name":"ZOUKI CAFE - ROYAL HOSPITAL (VIC)","CUSTOMER_LocationCode":"","Minus1_SiteKey":null},
     {"LocationID":324502,"Location Name":"ZOUKI ON THE PARK (VIC)","CUSTOMER_LocationCode":"","Minus1_SiteKey":null}
-    ];
+    ]
     
